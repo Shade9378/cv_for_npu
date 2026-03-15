@@ -1,0 +1,9 @@
+npu project/
+original_dataset/
+constructed_dataset/
+test_dataset/
+.venv/
+images/
+aruco_dataset/
+yolov8/runs
+yolov8/dataset
