@@ -8,3 +8,4 @@ aruco_dataset/
 yolov8/runs
 yolov8/dataset
 __pycache__/
+output/

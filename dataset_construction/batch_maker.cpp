@@ -348,7 +348,7 @@ int main(int argc, char** argv) {
     fs::create_directories(out_dir);
 
     fs::path images_dir = out_dir / "images";
-    fs::path bbox_dir   = out_dir / "bounding_box";
+    fs::path bbox_dir   = out_dir / "labels";
     fs::path boxed_dir  = out_dir / ("boxed_" + output_name);
 
     fs::create_directories(images_dir);
