@@ -5,7 +5,7 @@ Steps:
   1. ArUco dataset generation (C++)
   2. Train / val / test split + data.yaml generation
   3. Model training (loops until user is satisfied)
-  4. Optimizations (optional, commented out)
+  4. Optimizations
   5. ONNX export
   6. Conversion + post-optimization
 """
