@@ -19,7 +19,6 @@
 
 namespace fs = std::filesystem;
 
-// ---------- helpers ----------
 static cv::Mat ensureBGR(const cv::Mat& src) {
     if (src.empty()) return src;
     if (src.channels() == 3) return src;
@@ -111,7 +110,6 @@ static cv::Mat letterboxResize(
     return out;
 }
 
-// ---------- OpenCV pHash helpers ----------
 static cv::Mat computeOpenCVPHash(const cv::Mat& input) {
     cv::Mat img = ensureBGR(input);
     cv::Mat hash;
@@ -168,7 +166,6 @@ static void countLabelsInto(
     }
 }
 
-// Draw a filled label box + class id text
 static void drawClassLabel(cv::Mat& img, int class_id, const cv::Rect2f& bbox) {
     std::string text = std::to_string(class_id);
 
@@ -219,8 +216,6 @@ static void drawClassLabel(cv::Mat& img, int class_id, const cv::Rect2f& bbox) {
     );
 }
 
-// Render ONE output given assignment.
-// YOLO class == overlay index.
 static bool renderWithAssignment(
     const cv::Mat& image_in,
     const std::vector<int>& ids,
@@ -559,7 +554,6 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    // ---------- OpenCV pHash eval ----------
     const double similar_phash_threshold = 10.0;
 
     std::vector<cv::Mat> overlay_hashes(overlays.size());
