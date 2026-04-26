@@ -1,6 +1,18 @@
 """
 Pipeline Script
 ---------------
+
+Notes
+Later add some options to control train  size, like how many images are generated
+ => 2options how many image generated overall, or how many images generate for each samples
+better control
+NPU porting 
+Naive model (default) -> train with fixed number of epochs from scatch (10, 20, 30) -> observe the downstream
+5 replicas (train from scatch many times, but different seeds)
+Set to quiet flag (not much terminal output)
+Need to prove that this is flexible: New symbols set -> Opengameart.net -> looks for symbols set that is hard (ex: 52 card deck) why hard? so similar
+Make sure to record the resolution - 1280x640 etc tradeoff model performance and learning performance 
+
 Steps:
   1. ArUco dataset generation (C++)
   2. Train / val / test split + data.yaml generation

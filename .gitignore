@@ -10,3 +10,11 @@ yolov8/dataset
 __pycache__/
 output/
 overlays/
+overlay_cards/
+overlay_rpg_100/
+overlay_rpg_789/
+overlay_tarrot/
+output_tarrot/
+result_visualization/
+52cards.onnx
+52cards.pt

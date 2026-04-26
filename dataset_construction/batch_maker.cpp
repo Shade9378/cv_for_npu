@@ -419,7 +419,7 @@ int main(int argc, char** argv) {
     auto dictionary = cv::aruco::getPredefinedDictionary(cv::aruco::DICT_6X6_250);
 
     // ---- knobs ----
-    const int outputs_per_input_image = 70; // used only when num_unique_markers > 1
+    const int outputs_per_input_image = 100; // used only when num_unique_markers > 1
     const int duplicates_per_output   = 1;
 
     // Output resolution (labels will be in this coordinate system)

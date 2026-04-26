@@ -9,6 +9,9 @@ Usage:
 """
 
 import argparse
+import random
+import numpy as np
+import torch
 from ultralytics import YOLO
 
 
@@ -26,7 +29,6 @@ def parse_args() -> argparse.Namespace:
         default="yolov8/yolov8n.pt",
         help="Path to model weights (.pt file). Defaults to yolov8n.pt",
     )
-
 
     # Data
     data = parser.add_argument_group("Data")
@@ -70,7 +72,13 @@ def parse_args() -> argparse.Namespace:
         help="Final learning rate as a fraction of lr0 (optional)",
     )
 
-
+    # Seed (NEW)
+    train.add_argument(
+        "--seed",
+        type=int,
+        default=0,
+        help="Random seed for reproducibility",
+    )
 
     # Output
     output = parser.add_argument_group("Output")
@@ -84,8 +92,21 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def set_seed(seed: int):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+
+    # Deterministic (slower but reproducible)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
+
 def main() -> None:
     args = parse_args()
+
+    set_seed(args.seed)
 
     print("\nTraining configuration")
     print(f"  Weights   : {args.weights}")
@@ -95,6 +116,7 @@ def main() -> None:
     print(f"  Image size: {args.imgsz}")
     print(f"  LR0       : {args.lr0}")
     print(f"  LRF       : {args.lrf if args.lrf is not None else 'not set'}")
+    print(f"  Seed      : {args.seed}")
     print(f"  Project   : {args.project}\n")
 
     model = YOLO(args.weights)
@@ -108,6 +130,7 @@ def main() -> None:
         pretrained=True,
         amp=False,
         project=args.project,
+        seed=args.seed,  # important for YOLO
     )
 
     if args.lrf is not None:
