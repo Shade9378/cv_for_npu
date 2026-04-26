@@ -140,13 +140,13 @@ static bool renderWithAssignment(
     cv::Mat output = image.clone();
     cv::Mat output_boxed = image.clone();
 
-    // ---- Card styling knobs ----
-    const int padding = 20;
-    const int gap = 14;
-    const int border_px = 4;
     const int marker_patch_size = 320;
 
-    // ---- Partial-visibility knobs ----
+    // Thin clean outline drawn after warping.
+    const int border_px = 1;
+
+    const int cover_px = 14;
+
     const float min_visible_frac = 0.15f;
     const float min_visible_area = 400.f;
 
@@ -161,7 +161,7 @@ static bool renderWithAssignment(
         auto it = id_to_overlay_idx.find(id);
         if (it == id_to_overlay_idx.end()) continue;
 
-        int ov_idx = it->second; // overlay index == class id
+        int ov_idx = it->second;
         if (ov_idx < 0 || ov_idx >= (int)overlays.size()) continue;
 
         const cv::Mat& overlay = overlays[ov_idx];
@@ -170,7 +170,6 @@ static bool renderWithAssignment(
         std::vector<cv::Point2f> m = corners[i];
         if (m.size() != 4) continue;
 
-        // ---- 1) Extract marker patch ----
         std::vector<cv::Point2f> marker_dst = {
             {0.f, 0.f},
             {(float)marker_patch_size - 1, 0.f},
@@ -183,93 +182,150 @@ static bool renderWithAssignment(
 
         cv::Mat marker_patch;
         cv::warpPerspective(
-            image, marker_patch, Hm,
+            image,
+            marker_patch,
+            Hm,
             cv::Size(marker_patch_size, marker_patch_size),
-            cv::INTER_LINEAR, cv::BORDER_CONSTANT, cv::Scalar(255,255,255)
+            cv::INTER_LINEAR,
+            cv::BORDER_CONSTANT,
+            cv::Scalar(255,255,255)
         );
         marker_patch = ensureBGR(marker_patch);
 
-        // ---- 2) Build card (marker + overlay) ----
+        // Resize overlay using marker width, preserve aspect ratio.
         cv::Mat overlay_resized;
         {
             int targetW = marker_patch.cols;
-            int newH = (int)std::round(overlay.rows * (targetW / (double)overlay.cols));
+            int newH = (int)std::round(
+                overlay.rows * (targetW / (double)overlay.cols)
+            );
             newH = std::max(1, newH);
-            cv::resize(overlay, overlay_resized, cv::Size(targetW, newH), 0, 0, cv::INTER_AREA);
+
+            cv::resize(
+                overlay,
+                overlay_resized,
+                cv::Size(targetW, newH),
+                0,
+                0,
+                cv::INTER_AREA
+            );
         }
 
-        int contentW = marker_patch.cols;
-        int contentH = marker_patch.rows + gap + overlay_resized.rows;
+        // Expand overlay slightly using replicated edge pixels.
+        // This hides the ArUco marker border without adding a visible white/black pad.
+        cv::Mat overlay_patch;
+        cv::copyMakeBorder(
+            overlay_resized,
+            overlay_patch,
+            cover_px,
+            cover_px,
+            cover_px,
+            cover_px,
+            cv::BORDER_REPLICATE
+        );
 
-        int cardW = contentW + 2*(padding + border_px);
-        int cardH = contentH + 2*(padding + border_px);
+        // Anchor marker region inside expanded overlay.
+        // The actual overlay image begins at (cover_px, cover_px),
+        // so it still aligns with the marker top-left,
+        // while the replicated edge extends outward to cover the ArUco border.
+        float x0 = (float)cover_px;
+        float y0 = (float)cover_px;
 
-        cv::Mat card(cardH, cardW, CV_8UC3, cv::Scalar(255,255,255));
-        cv::rectangle(card, cv::Rect(0,0,cardW,cardH), cv::Scalar(0,0,0), border_px, cv::LINE_AA);
-
-        int x0 = border_px + padding;
-        int y0 = border_px + padding;
-        marker_patch.copyTo(card(cv::Rect(x0, y0, marker_patch.cols, marker_patch.rows)));
-
-        int y1 = y0 + marker_patch.rows + gap;
-        overlay_resized.copyTo(card(cv::Rect(x0, y1, overlay_resized.cols, overlay_resized.rows)));
-
-        // Pin marker region to detected marker quad
-        std::vector<cv::Point2f> marker_rect_card = {
-            cv::Point2f((float)x0, (float)y0),
-            cv::Point2f((float)(x0 + marker_patch.cols - 1), (float)y0),
-            cv::Point2f((float)(x0 + marker_patch.cols - 1), (float)(y0 + marker_patch.rows - 1)),
-            cv::Point2f((float)x0, (float)(y0 + marker_patch.rows - 1))
+        std::vector<cv::Point2f> marker_rect_overlay = {
+            cv::Point2f(x0, y0),
+            cv::Point2f(x0 + marker_patch.cols - 1, y0),
+            cv::Point2f(x0 + marker_patch.cols - 1, y0 + marker_patch.rows - 1),
+            cv::Point2f(x0, y0 + marker_patch.rows - 1)
         };
 
-        cv::Mat Hc = cv::findHomography(marker_rect_card, m);
+        cv::Mat Hc = cv::findHomography(marker_rect_overlay, m);
         if (Hc.empty()) continue;
 
-        // partial visibility check via card AABB clipped
-        std::vector<cv::Point2f> card_corners = {
+        std::vector<cv::Point2f> overlay_rect = {
             cv::Point2f(0.f, 0.f),
-            cv::Point2f((float)card.cols - 1, 0.f),
-            cv::Point2f((float)card.cols - 1, (float)card.rows - 1),
-            cv::Point2f(0.f, (float)card.rows - 1)
+            cv::Point2f((float)overlay_patch.cols - 1, 0.f),
+            cv::Point2f((float)overlay_patch.cols - 1, (float)overlay_patch.rows - 1),
+            cv::Point2f(0.f, (float)overlay_patch.rows - 1)
         };
-        std::vector<cv::Point2f> card_corners_img;
-        cv::perspectiveTransform(card_corners, card_corners_img, Hc);
 
-        cv::Rect2f card_aabb = quadToAABB(card_corners_img);
-        cv::Rect2f card_clip = clampRectToImage(card_aabb, image.size());
+        std::vector<cv::Point2f> overlay_quad_img;
+        cv::perspectiveTransform(overlay_rect, overlay_quad_img, Hc);
 
-        float full_area = std::max(1.f, card_aabb.area());
-        float vis_area  = card_clip.area();
+        cv::Rect2f overlay_aabb = quadToAABB(overlay_quad_img);
+        cv::Rect2f overlay_clip = clampRectToImage(overlay_aabb, image.size());
+
+        float full_area = std::max(1.f, overlay_aabb.area());
+        float vis_area  = overlay_clip.area();
         float vis_frac  = vis_area / full_area;
 
         if (vis_area < min_visible_area || vis_frac < min_visible_frac) continue;
 
-        // warp card + mask
-        cv::Mat card_warp;
-        cv::warpPerspective(card, card_warp, Hc, image.size(),
-                            cv::INTER_LINEAR, cv::BORDER_CONSTANT, cv::Scalar(0,0,0));
+        cv::Mat overlay_warp;
+        cv::warpPerspective(
+            overlay_patch,
+            overlay_warp,
+            Hc,
+            image.size(),
+            cv::INTER_LINEAR,
+            cv::BORDER_CONSTANT,
+            cv::Scalar(0,0,0)
+        );
 
-        cv::Mat mask_src(card.rows, card.cols, CV_8UC1, cv::Scalar(255));
+        cv::Mat mask_src(
+            overlay_patch.rows,
+            overlay_patch.cols,
+            CV_8UC1,
+            cv::Scalar(255)
+        );
+
         cv::Mat mask;
-        cv::warpPerspective(mask_src, mask, Hc, image.size(),
-                            cv::INTER_NEAREST, cv::BORDER_CONSTANT, cv::Scalar(0));
+        cv::warpPerspective(
+            mask_src,
+            mask,
+            Hc,
+            image.size(),
+            cv::INTER_NEAREST,
+            cv::BORDER_CONSTANT,
+            cv::Scalar(0)
+        );
 
-        card_warp.copyTo(output, mask);
-        card_warp.copyTo(output_boxed, mask);
+        overlay_warp.copyTo(output, mask);
+        overlay_warp.copyTo(output_boxed, mask);
 
-        // YOLO bbox for overlay region
-        std::vector<cv::Point2f> overlay_rect_card = {
-            cv::Point2f((float)x0, (float)y1),
-            cv::Point2f((float)(x0 + overlay_resized.cols - 1), (float)y1),
-            cv::Point2f((float)(x0 + overlay_resized.cols - 1), (float)(y1 + overlay_resized.rows - 1)),
-            cv::Point2f((float)x0, (float)(y1 + overlay_resized.rows - 1))
-        };
+        // Draw thin clean border after warp.
+        std::vector<cv::Point> border_poly;
+        border_poly.reserve(4);
 
-        std::vector<cv::Point2f> overlay_quad_img;
-        cv::perspectiveTransform(overlay_rect_card, overlay_quad_img, Hc);
+        for (const auto& p : overlay_quad_img) {
+            border_poly.push_back(
+                cv::Point(
+                    (int)std::round(p.x),
+                    (int)std::round(p.y)
+                )
+            );
+        }
 
-        cv::Rect2f ov_aabb  = quadToAABB(overlay_quad_img);
-        cv::Rect2f ov_clip  = clampRectToImage(ov_aabb, image.size());
+        cv::polylines(
+            output,
+            border_poly,
+            true,
+            cv::Scalar(0,0,0),
+            border_px,
+            cv::LINE_AA
+        );
+
+        cv::polylines(
+            output_boxed,
+            border_poly,
+            true,
+            cv::Scalar(0,0,0),
+            border_px,
+            cv::LINE_AA
+        );
+
+        // YOLO bbox for expanded overlay.
+        cv::Rect2f ov_aabb = quadToAABB(overlay_quad_img);
+        cv::Rect2f ov_clip = clampRectToImage(ov_aabb, image.size());
         if (ov_clip.area() < 25.f) continue;
 
         float cx = (ov_clip.x + ov_clip.width  * 0.5f) / imgW;
@@ -278,21 +334,36 @@ static bool renderWithAssignment(
         float h  = ov_clip.height / imgH;
 
         if (w <= 0.f || h <= 0.f) continue;
+
         cx = std::min(1.f, std::max(0.f, cx));
         cy = std::min(1.f, std::max(0.f, cy));
         w  = std::min(1.f, std::max(0.f, w));
         h  = std::min(1.f, std::max(0.f, h));
 
-        // class id is overlay index
         label_ss << ov_idx << " " << cx << " " << cy << " " << w << " " << h << "\n";
 
-        // draw bbox + points + class id on boxed image
-        cv::rectangle(output_boxed,
-                      cv::Rect((int)ov_clip.x, (int)ov_clip.y, (int)ov_clip.width, (int)ov_clip.height),
-                      cv::Scalar(0,255,0), 2, cv::LINE_AA);
+        cv::rectangle(
+            output_boxed,
+            cv::Rect(
+                (int)ov_clip.x,
+                (int)ov_clip.y,
+                (int)ov_clip.width,
+                (int)ov_clip.height
+            ),
+            cv::Scalar(0,255,0),
+            2,
+            cv::LINE_AA
+        );
 
         for (int k = 0; k < 4; k++) {
-            cv::circle(output_boxed, overlay_quad_img[k], 4, cv::Scalar(0,0,255), -1, cv::LINE_AA);
+            cv::circle(
+                output_boxed,
+                overlay_quad_img[k],
+                4,
+                cv::Scalar(0,0,255),
+                -1,
+                cv::LINE_AA
+            );
         }
 
         drawClassLabel(output_boxed, ov_idx, ov_clip);
@@ -301,6 +372,7 @@ static bool renderWithAssignment(
     output_img = output;
     boxed_img = output_boxed;
     yolo_labels_out = label_ss.str();
+
     return true;
 }
 
